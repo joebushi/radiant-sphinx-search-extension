@@ -1,3 +1,5 @@
+require 'sanitize'
+
 module SphinxSearch
   module RadiusTags
     include Radiant::Taggable
@@ -16,7 +18,7 @@ module SphinxSearch
       appended and pluralized as necessary, e.g. "1 result" or "999 results".
     }
     tag 'results:count' do |tag|
-      pluralize tag.locals.results.total_entries, 'result'
+      pluralize tag.locals.results.total_entries, 'page'
     end
 
     desc %{
@@ -31,6 +33,15 @@ module SphinxSearch
     }
     tag 'results:total_pages' do |tag|
       tag.locals.results.total_pages
+    end
+
+    desc %{
+      Returns the position in the overall result set of the first item in the current page, suitable for this kind of use:
+      
+      <pre></code><ol start="<r:results:page_start />">...</ol></pre></code>
+    }
+    tag 'results:page_start' do |tag|
+      ((tag.locals.results.current_page - 1) * tag.locals.results.per_page) + 1
     end
 
     desc %{
@@ -59,12 +70,19 @@ module SphinxSearch
       excerpted text will be limited to the page's title or the named part.
     }
     tag 'results:each:excerpt' do |tag|
-      content = case tag.attr['for']
-      when 'title' : tag.locals.page.title
-      when nil : tag.locals.page.parts.map(&:content).join(' ')
-      else tag.locals.page.part(tag.attr['for']).try(:content) || ''
+      begin
+        content = case tag.attr['for']
+        when 'title' : tag.locals.page.title
+        when nil : tag.locals.page.parts.map{|part| tag.locals.page.render_part(part.name) }.join(' ')
+        else 
+          part = tag.locals.page.part(tag.attr['for'])
+          tag.locals.page.render_part(tag.attr['for'])
+        end
+        tag.locals.results.excerpt_for(Sanitize.clean(content))
+      rescue => e
+        Rails.logger.warn "! Excerpt rendering failure on #{tag.locals.page.title}: #{e}"
+        ""
       end
-      tag.locals.results.excerpt_for(content)
     end
 
     desc %{
@@ -111,4 +129,5 @@ module SphinxSearch
       tag.expand unless tag.locals.results.empty?
     end
   end
+  
 end
